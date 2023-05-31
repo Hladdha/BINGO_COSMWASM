@@ -36,6 +36,7 @@ pub struct Game {
     pub game_finished: bool,
     pub join_duration: Timestamp,
     pub turn_duration: Timestamp,
+    pub last_draw_time: Timestamp,
     pub numbers: HashMap<u8, bool>,
 }
 
@@ -75,6 +76,7 @@ fn create_game(
         game_finished: false,
         join_duration,
         turn_duration,
+        last_draw_time: join_duration,
         numbers: HashMap::new()
     };
 
@@ -103,10 +105,11 @@ fn join_game(
     hasher.update(block_height.to_be_bytes());
 
     let hash_result = hasher.finalize();
+    let address = &info.sender;
 
-    let empty = PLAYER_BOARD.may_load(deps.storage, (info.sender, game_id))?;
+    let empty = PLAYER_BOARD.may_load(deps.storage, (address.clone(), game_id))?;
     assert_eq!(None, empty);
-    PLAYER_BOARD.save(deps.storage, (info.sender, game_id), hash_result);
+    // PLAYER_BOARD.save(deps.storage, (info.sender, game_id), hash_result);
 
     if env.block.time < game.join_duration {
         return Err(StdError::generic_err("Game is not open for joining"));
@@ -121,7 +124,7 @@ fn join_game(
     }
 
     game.pot += info.funds[0].amount;
-    game.players.push(info.sender);
+    game.players.push(info.sender.clone());
     GAMES.update(deps.storage,game_id,|games: Option<Game>| -> StdResult<_> { Ok(game) });
 
     Ok(Response::default().add_event(Event::new("player_join").add_attribute("address", info.sender)))
@@ -130,11 +133,19 @@ fn join_game(
 
 
 fn draw_number(deps: DepsMut, _env: Env, _info: MessageInfo, game_id: u32) -> Result<Response, StdError> {
-
+    let current_time = _env.block.time;
     let mut game = GAMES.load(deps.storage, game_id)?;
 
+    if !(game.game_finished) {
+        if current_time.seconds() < game.last_draw_time.seconds() + game.turn_duration.seconds() {
+            return Err(StdError::generic_err("wait for turn"));
+        }
+    }else {
+        if current_time < game.join_duration {
+            return Err(StdError::generic_err("game is not started yet"));
+        }}
 
-    let previous_block_number = _env.block.height;
+    let number_drawn = _env.block.height;
 
     Ok(Response::default())
 }
@@ -175,9 +186,9 @@ pub fn get_board(
     game_id: u32
 ) -> Result<Response, StdError> {
     let mut player_board = PLAYER_BOARD.load(deps.storage, (info.sender , game_id))?;
-    let board:[u8; 24]; 
+    let mut  board:[u8; 24] = [0; 24];
     for n in 0..24 {
-        board[n] = player_board;
+        board[n] = *player_board.first().unwrap();
     }
 
     Ok(Response::default())
@@ -191,7 +202,7 @@ pub fn bingo(
 ) -> Result<Response, StdError>{
     let mut game = GAMES.load(deps.storage, game_id)?;
     let player_board = PLAYER_BOARD.may_load(deps.storage, (info.sender, game_id))?;
-    let result = true;
+    let mut result = true;
     let patterns = PATTERNS;
 
     for n in 0..12 {
@@ -200,10 +211,11 @@ pub fn bingo(
             4
         }else { 5 };
 
-        for i in 0..patternlength {
-            result = result && game.numbers[player_board[31 - i]]
-        }
+        // for i in 0..patternlength {
+        //     result = result && game.numbers[player_board]
+        // }
         if result { break };
         if n < 11 {result =true;} 
     }
+    Ok(Response::default())
 }

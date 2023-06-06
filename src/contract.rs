@@ -6,6 +6,7 @@ use crate::msg::{ExecuteMsg, QueryMsg};
 use sha3::{Digest, Keccak256};
 use std::collections::HashMap;
 use base64ct::{Base64, Encoding};
+use crate::math::Uint64;
 
 const BOARD_SIZE: usize = 5;
 const COUNT: Item<u32> = Item::new("count");
@@ -36,7 +37,7 @@ pub struct Game {
     pub entry_fee: Uint128,
     pub game_finished: bool,
     pub join_duration: Timestamp,
-    pub turn_duration: Timestamp,
+    pub turn_duration: Uint64,
     pub last_draw_time: Timestamp,
     pub numbers: HashMap<u8, bool>,
 }
@@ -53,6 +54,8 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> StdResult<String> {
     let denom = msg.Denom;
+    let count = 0;
+    COUNT.save(deps.storage, &count);
     DENOM.save(deps.storage, &denom);
     Ok(denom)
 }
@@ -219,7 +222,8 @@ pub fn get_board(
     if player_board.is_none() {
         return Err(StdError::generic_err("game is not started yet"));
     }   
-    let bytes  = player_board.unwrap().as_bytes();
+    let binding = player_board.clone().unwrap();
+    let bytes  = binding.as_bytes();
     let mut  board:[u8; 24] = [0; 24];
     for n in 0..24 {
         board[n] = bytes[31-n].clone();
@@ -246,7 +250,7 @@ pub fn bingo(
         }else { 5 };
 
         for i in 0..patternlength {
-            result = result & game.numbers[&player_board.unwrap().as_bytes()[31 - pattern[i]]];
+            result = result & game.numbers[&player_board.clone().unwrap().as_bytes()[31 - pattern[i]]];
         }
         if result { break };
         if n < 11 {result =true;} 
@@ -264,7 +268,6 @@ pub fn bingo(
 #[cfg(test)]
 mod tests {
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-    use cosmwasm_std::{coins, from_binary, Addr, CosmosMsg, StdError, SubMsg, WasmMsg};
 
     use super::*;
 
@@ -275,6 +278,9 @@ mod tests {
         msg: InstantiateMsg,
     ) -> Option<String> {
         let denom = msg.Denom;
+        let count = 0;
+        COUNT.save(deps.storage, &count);
+        DENOM.save(deps.storage, &denom);
         Some(denom)
     }
 
@@ -294,55 +300,118 @@ mod tests {
         }
     }
     mod Bingo {
+        use cosmwasm_std::Attribute;
+
         use super::*;
 
         #[test]
         fn create_game_test(){
             let mut deps =  mock_dependencies();
+            let _info = mock_info("creator", &[]);
+            let _env = mock_env();
             let env  = mock_env();
             let info = mock_info("creator", &[]);
             let entry_fee = Uint128::new(100);
-            let join_duration = env.block.time.plus_seconds(100000000000);
+            let join_duration = env.block.time.plus_seconds(1000);
             let turn_duration = Timestamp::from_seconds(1000);
+            let msg = InstantiateMsg {
+                Denom : String::from("umlg"),
+            };
+
+            _do_instansiate(deps.as_mut(), env, info, msg);
             
-            let game = create_game(deps.as_mut(), env, info, entry_fee, join_duration, turn_duration).unwrap();
+            let game = create_game(deps.as_mut(), _env, _info, entry_fee, join_duration, turn_duration).unwrap();
+            let mock_game =Game {
+                players: Vec::new(),
+                pot: Uint128::zero(),
+                entry_fee,
+                game_finished: false,
+                join_duration,
+                turn_duration,
+                last_draw_time: join_duration,
+                numbers: HashMap::new()
+            };
+            println!("{:?}", mock_game);
             assert_eq!(
-                Game {
-                    players: Vec::new(),
-                    pot: Uint128::zero(),
-                    entry_fee,
-                    game_finished: false,
-                    join_duration,
-                    turn_duration,
-                    last_draw_time: join_duration,
-                    numbers: HashMap::new()
-                },
-                game
+                game,
+                mock_game
             );
         }
         
 
         #[test]
         fn test_join_game(){
+            let addr1 = String::from("addr1");
+            let info = mock_info(addr1.as_ref(), &coins(100,"umlg"));
+            let game_id = 0;
+            let mut deps =  mock_dependencies();
+            let _info = mock_info("creator", &[]);
+            let _env = mock_env();
+            let env  = mock_env();
+            let entry_fee = Uint128::new(100);
+            let join_duration = env.block.time.plus_seconds(1000);
+            let turn_duration = Timestamp::from_seconds(1000);
+            let msg = InstantiateMsg {
+                Denom : String::from("umlg"),
+            };
+
+            _do_instansiate(deps.as_mut(), env.clone(), info.clone(), msg);
+            
+            create_game(deps.as_mut(), _env, _info, entry_fee, join_duration, turn_duration).unwrap();
+            
+            let res = join_game(deps.as_mut(), env, info, game_id).unwrap();
+            let events = res.attributes;
+            let expected_event = Attribute::new("address", addr1.as_str());
+            let actual_event = vec![expected_event];
+            assert_eq!(events, actual_event);
+        }
+
+
+        #[test]
+        fn test_board_if_game_not_started (){
+            let mut deps = mock_dependencies();
+            let env =  mock_env();
+            let info = mock_info("creator", &[]);
+            let game_id = 0;
+            let res  = get_board(deps.as_mut(), env, info, game_id).unwrap_err();
+            assert_eq!(res ,StdError::generic_err("game is not started yet"));
+        }
+
+        #[test]
+        fn get_board_function (){
             let mut deps = mock_dependencies();
             let addr1 = String::from("addr1");
 
             let env =  mock_env();
             let info = mock_info(addr1.as_ref(), &coins(100,"umlg"));
             let game_id = 0;
-            
-            let res = join_game(deps.as_mut(), env, info, game_id).unwrap();
-            assert_eq!(,res.attributes);
+
+            let res = get_board(deps.as_mut(), env, info, game_id).unwrap();
         }
 
-
         #[test]
-        fn test_board(){
-            let mut deps = mock_dependencies();
-            let env =  mock_env();
-            let info = mock_info("creator", &[]);
-            let game_id = 0;
+        fn test_draw_number() {
+            let addr1 = String::from("addr1");
+            let info = mock_info(addr1.as_ref(), &coins(100,"umlg"));
+            let mut deps =  mock_dependencies();
+            let _info = mock_info("creator", &[]);
+            let _env = mock_env();
+            let env  = mock_env();
+            let entry_fee = Uint128::new(100);
+            let join_duration = env.block.time.plus_seconds(1);
+            let turn_duration = Timestamp::from_seconds();
+            let msg = InstantiateMsg {
+                Denom : String::from("umlg"),
+            };
+            let _game_id = 1;
 
+            _do_instansiate(deps.as_mut(), env.clone(), info.clone(), msg);
+            
+            create_game(deps.as_mut(), _env, _info, entry_fee, join_duration, turn_duration).unwrap();
+            
+            let number = draw_number(deps.as_mut() , env, info, _game_id).unwrap();
+            
+            println!("{}", number);
         }
     }
 }

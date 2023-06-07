@@ -1,4 +1,4 @@
-use cosmwasm_std::{DepsMut, Response, StdResult, Uint128, BankMsg, coins, entry_point};
+use cosmwasm_std::{DepsMut, Response, StdResult, Uint128, Uint64, BankMsg, coins, entry_point};
 use cosmwasm_std::{Addr, Env, MessageInfo, StdError, Timestamp, Event, Deps};
 use cw_storage_plus::{Item, Map};
 use serde::{Deserialize, Serialize};
@@ -6,13 +6,12 @@ use crate::msg::{ExecuteMsg, QueryMsg};
 use sha3::{Digest, Keccak256};
 use std::collections::HashMap;
 use base64ct::{Base64, Encoding};
-use crate::math::Uint64;
 
 const BOARD_SIZE: usize = 5;
 const COUNT: Item<u32> = Item::new("count");
 pub const GAMES: Map<u32, Game> = Map::new("games");
 pub const DENOM: Item<String> = Item::new("denom");
-pub const PLAYER_BOARD: Map<(Addr, u32), String> = Map::new("player");
+pub const PLAYER_BOARD: Map<(Addr, u32), &[u8]> = Map::new("player");
 
 const PATTERNS: [[usize; 5]; 12] = [
     [0, 1, 2, 3, 4],
@@ -55,7 +54,7 @@ pub fn instantiate(
 ) -> StdResult<String> {
     let denom = msg.Denom;
     let count = 0;
-    COUNT.save(deps.storage, &count);
+    COUNT.save(deps.storage, &count); 
     DENOM.save(deps.storage, &denom);
     Ok(denom)
 }
@@ -75,7 +74,7 @@ pub fn get_denom(_deps: Deps) -> Option<String> {
     Some(denom)
 }
 
-pub fn query_board(_deps: Deps, addr: Addr, game_id : u32) -> Option<String> {
+pub fn query_board(_deps: Deps, addr: Addr, game_id : u32) -> Option<&[u8]> {
     let board = PLAYER_BOARD.may_load(_deps.storage, (addr , game_id)).unwrap();
     board
 }
@@ -87,7 +86,7 @@ pub fn create_game(
     _info: MessageInfo,
     entry_fee: Uint128,
     join_duration: Timestamp,
-    turn_duration: Timestamp,
+    turn_duration: Uint64,
 ) -> Option<Game> {
     let mut count = COUNT.load(deps.storage).unwrap();
 
@@ -128,9 +127,11 @@ pub fn join_game(
     hasher.update(block_height.to_be_bytes());
 
     let hash_result = hasher.finalize();
-    let base64_hash = Base64::encode_string(&hash_result);
+    let bytes = hash_result.as_slice();
+    let first_24_bytes = &bytes[..24];
+    let base64_hash = Base64::encode_string(&hash_result.as_slice());
 
-    PLAYER_BOARD.save(deps.storage, (info.sender.clone(), game_id), &base64_hash);
+    PLAYER_BOARD.save(deps.storage, (info.sender.clone(), game_id), &first_24_bytes);
 
     if env.block.time < game.join_duration {
         return Err(StdError::generic_err("Game is not open for joining"));
@@ -160,7 +161,7 @@ pub fn draw_number(deps: DepsMut, _env: Env, _info: MessageInfo, game_id: u32) -
     let mut game = GAMES.load(deps.storage, game_id)?;
 
     if !(game.game_finished) {
-        if current_time.seconds() < game.last_draw_time.seconds() + game.turn_duration.seconds() {
+        if current_time.seconds() < game.last_draw_time.plus_seconds(game.turn_duration.into()).seconds() {
             return Err(StdError::generic_err("wait for turn"));
         }
     }else {
@@ -170,7 +171,8 @@ pub fn draw_number(deps: DepsMut, _env: Env, _info: MessageInfo, game_id: u32) -
     let block_height = _env.block.height;
     let mut hasher = Keccak256::new();
 
-    hasher.update(block_height.to_be_bytes());
+    hasher.update(block_height.to_string());
+    hasher.update(current_time.to_string());
     let number_drawn = hasher.finalize();
     
     game.numbers.insert(number_drawn[0], true);
@@ -240,6 +242,9 @@ pub fn bingo(
 ) -> Result<Response, StdError>{
     let mut game = GAMES.load(deps.storage, game_id)?;
     let player_board = PLAYER_BOARD.may_load(deps.storage, (info.sender.clone(), game_id))?;
+    if player_board.is_none() {
+        return Err(StdError::generic_err("you didnt join the game"));
+    }
     let mut result = true;
     let patterns = PATTERNS;
 
@@ -259,7 +264,7 @@ pub fn bingo(
         return Err(StdError::generic_err("you didnt win"));
     }
     game.game_finished = true;
-    GAMES.update(deps.storage,game_id,|_games: Option<Game>| -> StdResult<_> { Ok(game) });
+    GAMES.update(deps.storage,game_id,|_games: Option<Game>| -> StdResult<_> { Ok(game) })?;
     withdraw_winnings(deps, env, info);
 
     Ok(Response::default().add_event(Event::new("game_finished").add_attribute("Game Finished", game_id.to_string())))
@@ -313,7 +318,7 @@ mod tests {
             let info = mock_info("creator", &[]);
             let entry_fee = Uint128::new(100);
             let join_duration = env.block.time.plus_seconds(1000);
-            let turn_duration = Timestamp::from_seconds(1000);
+            let turn_duration = Uint64::new(1000);
             let msg = InstantiateMsg {
                 Denom : String::from("umlg"),
             };
@@ -350,7 +355,7 @@ mod tests {
             let env  = mock_env();
             let entry_fee = Uint128::new(100);
             let join_duration = env.block.time.plus_seconds(1000);
-            let turn_duration = Timestamp::from_seconds(1000);
+            let turn_duration = Uint64::new(1000);
             let msg = InstantiateMsg {
                 Denom : String::from("umlg"),
             };
@@ -398,8 +403,8 @@ mod tests {
             let _env = mock_env();
             let env  = mock_env();
             let entry_fee = Uint128::new(100);
-            let join_duration = env.block.time.plus_seconds(1);
-            let turn_duration = Timestamp::from_seconds();
+            let join_duration = env.block.time.plus_seconds(0);
+            let turn_duration = Uint64::new(0);
             let msg = InstantiateMsg {
                 Denom : String::from("umlg"),
             };

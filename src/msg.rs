@@ -13,3 +13,9 @@ pub enum QueryMsg {
     GetDenom{},
 }
 
+pub enum ExecuteMsg{
+    CreateGame {},
+    JoinGame {game_id: u32},
+    DrawNumber{game_id: u32},
+    WithdrawWinnings{}
+}

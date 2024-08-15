@@ -4,14 +4,17 @@ use cw_storage_plus::{Item, Map};
 use serde::{Deserialize, Serialize};
 use crate::msg::{ExecuteMsg, QueryMsg};
 use sha3::{Digest, Keccak256};
+
 use std::collections::HashMap;
 use base64ct::{Base64, Encoding};
+
 
 const BOARD_SIZE: usize = 5;
 const COUNT: Item<u32> = Item::new("count");
 pub const GAMES: Map<u32, Game> = Map::new("games");
 pub const DENOM: Item<String> = Item::new("denom");
 pub const PLAYER_BOARD: Map<(Addr, u32), &[u8]> = Map::new("player");
+
 
 const PATTERNS: [[usize; 5]; 12] = [
     [0, 1, 2, 3, 4],
@@ -44,6 +47,7 @@ pub struct Game {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct InstantiateMsg {
     pub Denom: String,
+
 }
 
 pub fn instantiate(
@@ -122,7 +126,9 @@ pub fn join_game(
     if empty.is_none() {
     let mut hasher = Keccak256::new();
 
+
     hasher.update(address.as_bytes());
+
     hasher.update(game_id.to_be_bytes());
     hasher.update(block_height.to_be_bytes());
 
@@ -132,6 +138,9 @@ pub fn join_game(
     let base64_hash = Base64::encode_string(&hash_result.as_slice());
 
     PLAYER_BOARD.save(deps.storage, (info.sender.clone(), game_id), &first_24_bytes);
+
+
+
 
     if env.block.time < game.join_duration {
         return Err(StdError::generic_err("Game is not open for joining"));
@@ -146,8 +155,12 @@ pub fn join_game(
     }
 
     game.pot += info.funds[0].amount;
+
     game.players.push(info.sender.clone());
+
     GAMES.update(deps.storage,game_id,|_games: Option<Game>| -> StdResult<_> { Ok(game) });
+
+
 
     Ok(Response::default().add_event(Event::new("player_join").add_attribute("address", info.sender)))
 } else {
@@ -192,6 +205,7 @@ fn withdraw_winnings(deps: DepsMut, _env: Env, _info: MessageInfo) -> Result<Res
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
+
 pub fn execute(
     deps: DepsMut,
     env: Env,
@@ -202,6 +216,7 @@ pub fn execute(
         ExecuteMsg::CreateGame {fee , T1, T2} => {
             create_game(deps, env, info, fee, T1, T2);
             return Ok(Response::new())},
+
         ExecuteMsg::JoinGame { game_id } => join_game(deps, env, info, game_id),
         ExecuteMsg::DrawNumber { game_id } => {
             draw_number(deps, env, info, game_id);

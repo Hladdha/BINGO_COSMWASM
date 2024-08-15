@@ -4,13 +4,17 @@ use cw_storage_plus::{Item, Map};
 use serde::{Deserialize, Serialize};
 use crate::msg::{ExecuteMsg};
 use sha3::{Digest, Keccak256};
+
 use std::collections::HashMap;
+
 
 const BOARD_SIZE: usize = 5;
 const COUNT: Item<u32> = Item::new("count");
 pub const GAMES: Map<u32, Game> = Map::new("games");
 pub const DENOM: Item<String> = Item::new("denom");
+
 pub const PLAYER_BOARD: Map<(Addr, u32), Vec<u8>> = Map::new("players");
+
 
 const PATTERNS: [[u8; 5]; 12] = [
     [0, 1, 2, 3, 4],
@@ -43,6 +47,7 @@ pub struct Game {
 #[derive(Serialize, Deserialize)]
 pub struct InstantiateMsg {
     pub Denom: String,
+
 }
 
 pub fn instantiate(
@@ -98,6 +103,7 @@ fn join_game(
 
     let mut hasher = Keccak256::new();
 
+
     hasher.update(info.sender.as_bytes());
 
     hasher.update(game_id.to_be_bytes());
@@ -107,9 +113,12 @@ fn join_game(
     let hash_result = hasher.finalize();
     let address = &info.sender;
 
+
     let empty = PLAYER_BOARD.may_load(deps.storage, (address.clone(), game_id))?;
+
     assert_eq!(None, empty);
     // PLAYER_BOARD.save(deps.storage, (info.sender, game_id), hash_result);
+
 
     if env.block.time < game.join_duration {
         return Err(StdError::generic_err("Game is not open for joining"));
@@ -124,8 +133,11 @@ fn join_game(
     }
 
     game.pot += info.funds[0].amount;
+
     game.players.push(info.sender.clone());
+
     GAMES.update(deps.storage,game_id,|games: Option<Game>| -> StdResult<_> { Ok(game) });
+
 
     Ok(Response::default().add_event(Event::new("player_join").add_attribute("address", info.sender)))
 }
@@ -164,6 +176,7 @@ fn withdraw_winnings(deps: DepsMut, _env: Env, _info: MessageInfo) -> Result<Res
 
 #[entry_point]
 
+
 pub fn execute(
     deps: DepsMut,
     env: Env,
@@ -171,7 +184,9 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, StdError> {
     match msg {
+
         ExecuteMsg::CreateGame {fee , T1, T2} => create_game(deps, env, info, fee, T1, T2),
+
         ExecuteMsg::JoinGame { game_id } => join_game(deps, env, info, game_id),
         ExecuteMsg::DrawNumber { game_id } => draw_number(deps, env, info, game_id),
         ExecuteMsg::WithdrawWinnings {} => withdraw_winnings(deps, env, info),
@@ -219,3 +234,4 @@ pub fn bingo(
     }
     Ok(Response::default())
 }
+

@@ -9,3 +9,9 @@ pub enum ExecuteMsg{
     WithdrawWinnings{}
 }
 
+pub enum ExecuteMsg{
+    CreateGame {},
+    JoinGame {game_id: u32},
+    DrawNumber{game_id: u32},
+    WithdrawWinnings{}
+}
